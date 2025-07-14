@@ -1,0 +1,30 @@
+:root {
+  --dp-blue: #00B8F9;
+  --dp-purple: #BD9FE5;
+  --dp-navy: #003A63;
+  --dp-yellow: #F4AE18;
+  --dp-silver: #E4E9ED;
+  --dp-grey: #5F5F5F;
+}
+
+/* Page background and headers */
+body {
+  background-color: var(--dp-silver);
+  color: var(--dp-navy);
+}
+
+/* Button style */
+button[kind="primary"] {
+  background-color: var(--dp-blue) !important;
+  color: white !important;
+}
+
+/* Secondary headers */
+h2, .stSubheader {
+  color: var(--dp-purple);
+}
+
+/* Markdown link color */
+a {
+  color: var(--dp-yellow);
+}
