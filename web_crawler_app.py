@@ -2,6 +2,8 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import streamlit as st
+import pandas as pd
 
 def normalize_and_validate_phone(phone_str):
     digits = re.sub(r'\D', '', phone_str)
@@ -190,13 +192,13 @@ def crawl_site_for_contacts(start_url, max_pages=50):
     recent_events = []
     upcoming_events = []
     donation_platform = 'Not checked'
+    all_emails = set()
 
     while to_visit and len(visited) < max_pages:
         url = to_visit.pop(0)
         if url in visited:
             continue
         visited.add(url)
-        print(f"Crawling: {url}")
 
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -222,11 +224,16 @@ def crawl_site_for_contacts(start_url, max_pages=50):
                 donation_platform = detect_donation_platform(start_url, soup)
 
             linkedin_profiles.update(extract_linkedin_profiles(soup))
+
             contacts = extract_contacts_from_html(soup)
-
             for contact in contacts:
-                unique_id = contact['name'].lower()  # Deduplicate by name only
+                contact['source_url'] = url  # Add source page URL
 
+                # Collect emails separately
+                if contact['email']:
+                    all_emails.add(contact['email'].lower())
+
+                unique_id = contact['name'].lower() if contact['name'] else contact['email'].lower()
                 if unique_id not in seen:
                     name_parts = contact['name'].lower().split() if contact['name'] else []
                     for profile_url in linkedin_profiles:
@@ -242,43 +249,70 @@ def crawl_site_for_contacts(start_url, max_pages=50):
                 if link not in visited and len(visited) + len(to_visit) < max_pages:
                     to_visit.append(link)
 
-        except requests.RequestException as e:
-            print(f"Failed to fetch {url}: {e}")
+        except requests.RequestException:
+            continue
 
-    return all_contacts, mission, address, recent_events, upcoming_events, donation_platform
+    return all_contacts, mission, address, recent_events, upcoming_events, donation_platform, list(all_emails)
 
-if __name__ == "__main__":
-    base_url = input("Enter the base website URL (e.g. https://example.org): ").strip()
-    max_pages = 50
-    contacts, mission, address, recent_events, upcoming_events, donation_platform = crawl_site_for_contacts(base_url, max_pages)
+# --- Streamlit Front End ---
+st.title("🕸️ Web Contact & Info Crawler")
 
-    print("\n--- Organization Overview ---")
-    print(f"Mission: {mission if mission else 'Not Found'}")
-    print(f"Address: {address if address else 'Not Found'}")
-    print(f"Donation Platform: {donation_platform}")
+url_input = st.text_input("Enter the base website URL (e.g. https://example.org)")
 
-    print("\n--- Recent Events ---")
+if st.button("Start Crawling") and url_input:
+    with st.spinner("Crawling website... (this may take some time)"):
+        contacts, mission, address, recent_events, upcoming_events, donation_platform, all_emails = crawl_site_for_contacts(url_input.strip(), max_pages=50)
+
+    st.subheader("📌 Organization Overview")
+    st.write(f"**Mission:** {mission if mission else 'Not Found'}")
+    st.write(f"**Address:** {address if address else 'Not Found'}")
+    st.write(f"**Donation Platform:** {donation_platform}")
+
+    st.subheader("📅 Recent Events")
     if recent_events:
         for event in recent_events:
-            print(f"- {event}")
+            st.write(f"- {event}")
     else:
-        print("No recent events found.")
+        st.write("No recent events found.")
 
-    print("\n--- Upcoming Events ---")
+    st.subheader("📅 Upcoming Events")
     if upcoming_events:
         for event in upcoming_events:
-            print(f"- {event}")
+            st.write(f"- {event}")
     else:
-        print("No upcoming events found.")
+        st.write("No upcoming events found.")
+
+    if all_emails:
+        st.subheader("📬 All Emails Found")
+        for email in all_emails:
+            st.write(email)
 
     if contacts:
-        print(f"\nExtracted {len(contacts)} Unique Contact(s):\n")
+        st.subheader(f"👥 Extracted {len(contacts)} Contact(s)")
         for c in contacts:
-            print(f"Name: {c['name']}")
-            print(f"Title: {c['title']}")
-            print(f"Email: {c['email']}")
-            print(f"Phone: {c['phone']}")
-            print(f"LinkedIn: {c['linkedin'] if c['linkedin'] else 'Not found'}")
-            print("-" * 40)
-    else:
-        print("No contact information found.")
+            if c['linkedin']:
+                linkedin_md = f"[LinkedIn]({c['linkedin']})"
+            else:
+                linkedin_md = "Not Found"
+
+            source_md = f"[Source page]({c['source_url']})" if c.get('source_url') else "Unknown"
+
+            st.markdown(f"""
+            **Name:** [{c['name']}]({c['source_url']})  
+            **Title:** {c['title']}  
+            **Email:** {c['email']}  
+            **Phone:** {c['phone']}  
+            **LinkedIn:** {linkedin_md}  
+            **Found on:** {source_md}
+            """)
+            st.markdown("---")
+
+        # Export contacts CSV
+        df = pd.DataFrame(contacts)
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="⬇️ Download Contacts as CSV",
+            data=csv,
+            file_name='contacts.csv',
+            mime='text/csv'
+        )
