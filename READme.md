@@ -1,5 +1,15 @@
-# 🕸️ Web Contact Crawler
+# 🕸️ Web Contact & Info Crawler
 
-Streamlit app that extracts contact info, events, mission, and donation platform from nonprofit websites.
+This Streamlit app crawls a nonprofit website (up to 50 pages) to extract:
 
-## Run Locally
+- Contact cards (with name, title, email, phone, LinkedIn, and source URL)
+- Organization mission and address
+- Recent and upcoming events
+- Donation platform detection
+- List of all emails found
+
+## How to run locally
+
+```bash
+pip install -r requirements.txt
+streamlit run web_crawler_app.py
