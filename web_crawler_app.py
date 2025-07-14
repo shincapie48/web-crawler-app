@@ -1,7 +1,14 @@
-st.markdown(
-    '<style>' + open('styles.css').read() + '</style>',
-    unsafe_allow_html=True
-)
+import streamlit as st  # Must be first
+import re
+import requests
+# ...other imports...
+
+# Load CSS *after* streamlit is imported
+with open("styles.css") as f:
+    css = f.read()
+st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+# ...rest of your code...
 
 # web_crawler_app.py
 
