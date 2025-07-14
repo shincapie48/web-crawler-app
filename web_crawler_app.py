@@ -1,3 +1,8 @@
+st.markdown(
+    '<style>' + open('styles.css').read() + '</style>',
+    unsafe_allow_html=True
+)
+
 # web_crawler_app.py
 
 import re
