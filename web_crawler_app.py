@@ -146,4 +146,48 @@ def crawl_site_for_contacts(url, max_pages):
         except:
             pass
         step += 1
-        pbar.progress
+        pbar.progress(min(step / max_pages, 1.0))
+    return contacts, emails, mission, address, recent_events, upcoming_events, donation
+
+# --- Execute and Display ---
+if st.button("Start Crawling") and url_input:
+    (contacts, all_emails,
+     mission, address,
+     recents, upcoming,
+     donation) = crawl_site_for_contacts(url_input.strip(), max_pages)
+
+    st.success(f"✅ Crawling done — {len(contacts)} contacts found")
+
+    st.subheader("📌 Organization Overview")
+    st.write(f"• Mission: {mission or 'Not found'}")
+    st.write(f"• Address: {address or 'Not found'}")
+    st.write(f"• Donation Platform: {donation or 'Not detected'}")
+
+    st.subheader("📅 Recent Events")
+    for e in recents or ["No recent events found"]:
+        st.write(f"- {e}")
+
+    st.subheader("📅 Upcoming Events")
+    for e in upcoming or ["No upcoming events found"]:
+        st.write(f"- {e}")
+
+    if contacts:
+        st.subheader(f"👥 {len(contacts)} Contact Cards")
+        df = pd.DataFrame(contacts)
+        # Display cards
+        for _, c in df.iterrows():
+            linkedin = f"[LinkedIn]({c.linkedin})" if c.linkedin else "Not found"
+            st.markdown(f"""**Name:** [{c.name}]({c.source_url})  \n**Title:** {c.title}  \n**Email:** {c.email}  \n**Phone:** {c.phone}  \n**LinkedIn:** {linkedin}""")
+            st.markdown("---")
+        # CSV export
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button("⬇️ Export Contact Cards (CSV)", csv, "contacts.csv", "text/csv")
+    else:
+        st.info("No contacts parsed.")
+
+    used_emails = {c.email.lower() for c in contacts if c.email}
+    orphaned = sorted(all_emails - used_emails)
+    if orphaned:
+        st.subheader("📬 Orphaned Emails (not in contact cards)")
+        for e in orphaned:
+            st.write(e)
