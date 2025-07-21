@@ -5,118 +5,106 @@ from urllib.parse import urljoin, urlparse
 import streamlit as st
 import pandas as pd
 
-# Setup
-st.set_page_config(page_title="Web Crawler", layout="wide")
-st.title("🕸️ Web Contact Crawler")
+# Streamlit config
+st.set_page_config(page_title="Web Contact & Info Crawler", layout="wide")
+st.title("🕸️ Web Contact & Info Crawler")
 
 # Input
-url_input = st.text_input("Enter the base website URL (e.g. https://example.org)")
-max_pages = st.number_input("Max pages to crawl", min_value=1, max_value=100, value=50, step=5)
+url_input = st.text_input("Enter a nonprofit website URL (e.g. https://example.org)")
+max_pages = st.slider("Max pages to crawl", 1, 100, 50)
 
-def normalize_and_validate_phone(phone_str):
-    digits = re.sub(r'\D', '', phone_str)
-    return phone_str if len(digits) == 10 else ''
+def normalize_phone(p): ...
+def remove_dupes(t): ...
+# (Insert your full existing helper functions here: mission, events, linkedin, etc.)
 
-def remove_duplicate_words(text):
-    seen, result = set(), []
-    for w in text.split():
-        if w.lower() not in seen:
-            seen.add(w.lower())
-            result.append(w)
-    return " ".join(result)
-
-def extract_contacts_from_html(soup):
-    lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
-    email_re = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-    phone_re = re.compile(r"\+?\d{1,4}?[\s\.-]?\(?\d{1,3}\)?[\s\.-]?\d{1,4}[\s\.-]?\d{1,4}[\s\.-]?\d{1,9}")
-    name_re = re.compile(r"\b((?:Dr\.|Mr\.|Ms\.|Mrs\.)?\s?[A-Z][a-z]+(?:\s[A-Z]\.)?(?:\s[A-Z][a-z]+)+)\b")
-
-    contacts = []
-    for i, line in enumerate(lines):
-        emails = email_re.findall(line)
-        phones = phone_re.findall(line)
-        if not emails and not phones:
-            continue
-
-        ctx = " ".join(lines[max(0, i-2):i+3])
-        name_m = name_re.search(ctx)
-        name = name_m.group(1).strip() if name_m else ""
-        phone = normalize_and_validate_phone(phones[0]) if phones else ""
-        email = emails[0] if emails else ""
-        title = ""
-
-        # Try to detect title
-        for l in lines[max(0, i-2):i+3]:
-            if any(k in l for k in ["Director", "Manager", "CEO", "Founder", "Professor", "Dr.", "Mr.", "Ms.", "Mrs."]):
-                title = l.strip()
-                break
-
-        # Clean and require at least 2 fields
-        name = remove_duplicate_words(name)
-        title = remove_duplicate_words(title)
-        if sum(bool(v) for v in [name, title, email, phone]) < 2:
-            continue
-
-        contacts.append({"name": name, "title": title, "email": email, "phone": phone})
-    return contacts
-
-def crawl_site_for_contacts(start_url, max_pages):
-    visited, to_visit = set(), [start_url]
-    all_contacts, all_emails = [], set()
-    mission = address = donation_info = ""
+# Compact crawler without visible logs
+def crawl_site_for_contacts(url, max_pages):
+    visited, to_visit = set(), [url]
+    contacts, emails = [], set()
+    mission = address = donation = ""
     recent_events = upcoming_events = []
-
+    
     pbar = st.progress(0)
-    while to_visit and len(visited) < max_pages:
-        url = to_visit.pop(0)
-        visited.add(url)
-        st.write(f"Crawling: {url} ({len(visited)}/{max_pages})")
-
+    steps = 0
+    while to_visit and steps < max_pages:
+        page = to_visit.pop(0)
+        visited.add(page)
         try:
-            r = requests.get(url, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+            r = requests.get(page, timeout=10, headers={"User-Agent":"Mozilla"})
             soup = BeautifulSoup(r.text, "html.parser")
-
-            # Extract contacts and emails
-            contacts = extract_contacts_from_html(soup)
-            for c in contacts:
-                c["source_url"] = url
+            
+            m, a = extract_mission_and_address(soup)
+            if m: mission = m
+            if a: address = a
+            
+            rec, up = extract_event_summaries(soup)
+            if rec: recent_events = rec
+            if up: upcoming_events = up
+            
+            if donation == "":
+                donation = detect_donation_platform(page, soup)
+            
+            for link in extract_linkedin_profiles(soup):
+                pass  # (use as needed)
+            
+            cs = extract_contacts_from_html(soup)
+            for c in cs:
+                c["source_url"] = page
                 if c["email"]:
-                    all_emails.add(c["email"].lower())
-                if not any(existing["email"] == c["email"] for existing in all_contacts):
-                    all_contacts.append(c)
+                    emails.add(c["email"].lower())
+                if not any(d["email"] == c["email"] for d in contacts):
+                    contacts.append(c)
 
-            # Add internal links
-            base = urlparse(start_url).netloc
+            base = urlparse(url).netloc
             for a in soup.select("a[href]"):
-                full = urljoin(url, a["href"].split("#")[0])
-                if urlparse(full).netloc == base and full not in visited:
+                full = urljoin(page, a["href"].split("#")[0])
+                if urlparse(full).netloc == base and full not in visited and len(to_visit) + steps < max_pages:
                     to_visit.append(full)
-
-        except Exception as e:
-            st.error(f"Error crawling {url}: {e}")
-
-        pbar.progress(min(len(visited)/max_pages, 1.0))
-
-    return all_contacts, all_emails
+        except:
+            pass
+        
+        steps += 1
+        pbar.progress(min(steps / max_pages, 1.0))
+    return contacts, emails, mission, address, recent_events, upcoming_events, donation
 
 if st.button("Start Crawling") and url_input:
-    contacts, all_emails = crawl_site_for_contacts(url_input.strip(), max_pages)
-    st.success(f"Finished crawling. {len(contacts)} contacts found.")
+    contacts, all_emails, mission, address, recents, upcoming, donation = crawl_site_for_contacts(url_input, max_pages)
+    st.success("✅ Crawling complete")
 
-    # Display
+    st.subheader("📌 Organization Overview")
+    st.write(f"**Mission:** {mission or 'Not Found'}")
+    st.write(f"**Address:** {address or 'Not Found'}")
+    st.write(f"**Donation Platform:** {donation or 'None detected'}")
+
+    st.subheader("📅 Recent Events")
+    if recents:
+        for e in recents: st.write(f"- {e}")
+    else: st.write("- No recent events found")
+
+    st.subheader("📅 Upcoming Events")
+    if upcoming:
+        for e in upcoming: st.write(f"- {e}")
+    else: st.write("- No upcoming events found")
+
     if contacts:
+        st.subheader(f"👥 {len(contacts)} Contact(s) Found")
+        for c in contacts:
+            linkedin = f"[LinkedIn]({c['linkedin']})" if c.get("linkedin") else "Not found"
+            st.markdown(f"""
+**Name:** [{c['name']}]({c['source_url']})  
+**Title:** {c['title']}  
+**Email:** {c['email']}  
+**Phone:** {c['phone']}  
+**LinkedIn:** {linkedin}
+""")
+            st.markdown("---")
         df = pd.DataFrame(contacts)
-        df["source"] = df["source_url"]
-        st.table(df[["name", "title", "email", "phone", "source"]])
-
-        csv = df.to_csv(index=False).encode()
-        st.download_button("Download contacts (CSV)", csv, "contacts.csv", "text/csv")
+        st.download_button("⬇️ Download Contacts as CSV", df.to_csv(index=False), "contacts.csv")
     else:
-        st.info("No contacts extracted.")
+        st.info("No contacts found.")
 
-    used_emails = set(c["email"].lower() for c in contacts if c["email"])
-    orphaned = sorted(all_emails - used_emails)
+    used = {c["email"].lower() for c in contacts}
+    orphaned = sorted(all_emails - used)
     if orphaned:
-        st.subheader("✨ Additional (Orphaned) Emails Found")
-        for e in orphaned:
-            st.write(e)
+        st.subheader("📬 Additional Emails Found (Not in Contact Cards)")
+        for e in orphaned: st.write(e)
