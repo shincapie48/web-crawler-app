@@ -8,11 +8,10 @@ import pandas as pd
 st.set_page_config(page_title="Web Contact & Info Crawler", layout="wide")
 st.title("🕸️ Web Contact & Info Crawler")
 
-url_input = st.text_input("Enter a nonprofit website URL (e.g. https://example.org)")
+url_input = st.text_input("Enter a nonprofit website URL (e.g., https://example.org)")
 max_pages = st.slider("Max pages to crawl", 1, 100, 50)
 
-# -- Helper Functions (identical to your working version) --
-
+# --- Helper functions (accurate versions) ---
 def normalize_and_validate_phone(phone_str):
     digits = re.sub(r'\D', '', phone_str)
     return phone_str if len(digits) == 10 else ''
@@ -33,10 +32,8 @@ def extract_contacts_from_html(soup):
     name_re = re.compile(
         r"\b((?:Dr\.|Rev\.|Mr\.|Ms\.|Mrs\.)?\s?[A-Z][a-z]+(?:\s[A-Z]\.)?(?:\s[A-Z][a-z]+)+)\b"
     )
-    title_keywords = [
-        'Director','Manager','Coordinator','Officer','President',
-        'CEO','Founder','Chair','Professor','Dr.','Mr.','Ms.','Mrs.'
-    ]
+    title_keywords = ['Director','Manager','Coordinator','Officer','President','CEO',
+                      'Founder','Chair','Professor','Dr.','Mr.','Ms.','Mrs.']
 
     contacts = []
     for i, line in enumerate(lines):
@@ -59,63 +56,94 @@ def extract_contacts_from_html(soup):
 
         name = remove_duplicate_words(name)
         title = remove_duplicate_words(title)
+
         if sum(bool(v) for v in [name, title, email, phone]) < 2:
             continue
 
-        contacts.append({
-            "name": name,
-            "title": title,
-            "email": email,
-            "phone": phone,
-            "linkedin": ""
-        })
+        contacts.append({"name": name, "title": title, "email": email, "phone": phone, "linkedin": ""})
     return contacts
 
-# Additional extractors (mission, events, donation, etc.) – keep as-is
+def extract_mission_and_address(soup):
+    lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
+    mission = next((l for l in lines if any(k in l.lower() for k in ["our mission","we exist to","mission is to"])), "")
+    addr = ""
+    addr_re = re.compile(r"\d{1,6} .+?, [A-Za-z\s]+, [A-Z]{2} \d{5}")
+    for l in lines:
+        m = addr_re.search(l)
+        if m:
+            addr = m.group()
+            break
+    return mission, addr
 
+def extract_event_summaries(soup):
+    lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
+    recent, upcoming = [], []
+    for i, l in enumerate(lines):
+        lo = l.lower()
+        if any(k in lo for k in ["recent events","past events","highlights","recap"]):
+            recent.extend(lines[i+1:i+6])
+        elif any(k in lo for k in ["upcoming events","calendar","save the date","future events"]):
+            upcoming.extend(lines[i+1:i+6])
+    return list(dict.fromkeys([e for e in recent if len(e)<200]))[:5], list(dict.fromkeys([e for e in upcoming if len(e)<200]))[:5]
+
+def extract_linkedin_profiles(soup):
+    return [a['href'] for a in soup.find_all("a", href=True)
+            if "linkedin.com/in/" in a['href'] or "linkedin.com/company/" in a['href']]
+
+def get_internal_links(start_url, soup):
+    base = urlparse(start_url).netloc
+    return set(urljoin(start_url, a['href'].split("#")[0]) for a in soup.find_all("a", href=True)
+               if urlparse(urljoin(start_url, a['href'])).netloc == base)
+
+def detect_donation_platform(base_url, soup):
+    platforms = ['givecloud','givemsmart','bloomerang','kindful','raisersedge',"etapestry","classy"]
+    for a in soup.find_all("a", href=True):
+        if any(k in (a.get_text().lower() + a['href'].lower()) for k in ["donate","support","give"]):
+            try:
+                r = requests.get(urljoin(base_url, a['href']), timeout=5)
+                txt = r.text.lower()
+                for p in platforms:
+                    if p in txt:
+                        return f"Donate via {p}"
+            except:
+                pass
+    return "Not detected"
+
+# --- Crawl function ---
 def crawl_site_for_contacts(url, max_pages):
     visited, to_visit = set(), [url]
-    contacts, all_emails = [], set()
+    contacts, emails = [], set()
     mission = address = donation = ""
     recent_events = upcoming_events = []
-    progress = st.progress(0)
-    steps = 0
 
-    while to_visit and steps < max_pages:
+    pbar = st.progress(0)
+    step = 0
+
+    while to_visit and step < max_pages:
         page = to_visit.pop(0)
         visited.add(page)
-
         try:
             r = requests.get(page, timeout=5, headers={"User-Agent":"Mozilla/5.0"})
             soup = BeautifulSoup(r.text, "html.parser")
-
-            # Mission, events, donation logic – same as before
-            # Contact extraction:
+            if not mission or not address:
+                m, a = extract_mission_and_address(soup)
+                mission, address = m or mission, a or address
+            if not recent_events and not upcoming_events:
+                recent_events, upcoming_events = extract_event_summaries(soup)
+            if not donation:
+                donation = detect_donation_platform(page, soup)
+            # Linkedin not prioritized but saved if later
             cs = extract_contacts_from_html(soup)
             for c in cs:
                 c["source_url"] = page
                 if c["email"]:
-                    all_emails.add(c["email"].lower())
+                    emails.add(c["email"].lower())
                 if not any(d["email"] == c["email"] for d in contacts):
                     contacts.append(c)
-
-            base = urlparse(url).netloc
-            for a in soup.find_all("a", href=True):
-                full = urljoin(page, a["href"].split("#")[0])
-                if urlparse(full).netloc == base and full not in visited:
-                    to_visit.append(full)
-
+            for link in get_internal_links(url, soup):
+                if link not in visited:
+                    to_visit.append(link)
         except:
             pass
-
-        steps += 1
-        progress.progress(min(steps / max_pages, 1.0))
-
-    return contacts, all_emails, mission, address, recent_events, upcoming_events, donation
-
-if st.button("Start Crawling") and url_input:
-    contacts, all_emails, mission, address, recents, upcoming, donation = crawl_site_for_contacts(url_input.strip(), max_pages)
-    st.success(f"Crawling complete — {len(contacts)} contacts found")
-
-    # Display Overview → Events → Contacts → Orphaned Emails
-    # (same structure as before)
+        step += 1
+        pbar.progress
