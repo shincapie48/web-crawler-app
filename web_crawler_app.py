@@ -31,7 +31,6 @@ def extract_contacts_from_html(soup):
     email_re = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
     phone_re = re.compile(r"\+?\d{1,4}?[\s.-]?\(?\d{1,3}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,4}[\s.-]?\d{1,9}")
     
-    # Updated name regex
     name_re = re.compile(
         r"\b((?:Dr\.|Rev\.|Mr\.|Ms\.|Mrs\.)?\s?[A-Z][a-z]+(?:\s[A-Z]\.)?(?:\s[A-Z][a-z]+)+)\b"
     )
@@ -47,20 +46,16 @@ def extract_contacts_from_html(soup):
         if not (emails or phones):
             continue
 
-        # Grab a 5-line context around the match
         ctx_lines = lines[max(0, i-2):i+3]
         ctx = " ".join(ctx_lines)
 
-        # Try to extract name
         name = ""
         name_m = name_re.search(ctx)
         if name_m:
             name_candidate = name_m.group(1).strip()
-            # Sanity checks: no digits, at least 2 words
             if not any(char.isdigit() for char in name_candidate) and len(name_candidate.split()) >= 2:
                 name = name_candidate
 
-        # Try to extract title from nearby lines
         title = ""
         for ctx_line in ctx_lines:
             if any(k in ctx_line for k in title_keywords):
@@ -73,7 +68,6 @@ def extract_contacts_from_html(soup):
         name = remove_duplicate_words(name)
         title = remove_duplicate_words(title)
 
-        # At least two fields must be present
         if sum(bool(v) for v in [name, title, email, phone]) < 2:
             continue
 
@@ -89,7 +83,7 @@ def extract_contacts_from_html(soup):
 
 def extract_mission_and_address(soup):
     lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
-    mission = next((l for l in lines if any(k in l.lower() for k in ["our mission","we exist to","mission is to"])), "")
+    mission = next((l for l in lines if any(k in l.lower() for k in ["our mission", "we exist to", "mission is to"])), "")
     addr = ""
     addr_re = re.compile(r"\d{1,6} .+?, [A-Za-z\s]+, [A-Z]{2} \d{5}")
     for l in lines:
@@ -104,11 +98,11 @@ def extract_event_summaries(soup):
     recent, upcoming = [], []
     for i, l in enumerate(lines):
         lo = l.lower()
-        if any(k in lo for k in ["recent events","past events","highlights","recap"]):
+        if any(k in lo for k in ["recent events", "past events", "highlights", "recap"]):
             recent.extend(lines[i+1:i+6])
-        elif any(k in lo for k in ["upcoming events","calendar","save the date","future events"]):
+        elif any(k in lo for k in ["upcoming events", "calendar", "save the date", "future events"]):
             upcoming.extend(lines[i+1:i+6])
-    return list(dict.fromkeys([e for e in recent if len(e)<200]))[:5], list(dict.fromkeys([e for e in upcoming if len(e)<200]))[:5]
+    return list(dict.fromkeys([e for e in recent if len(e) < 200]))[:5], list(dict.fromkeys([e for e in upcoming if len(e) < 200]))[:5]
 
 def extract_linkedin_profiles(soup):
     return [a['href'] for a in soup.find_all("a", href=True)
@@ -120,9 +114,9 @@ def get_internal_links(start_url, soup):
                if urlparse(urljoin(start_url, a['href'])).netloc == base)
 
 def detect_donation_platform(base_url, soup):
-    platforms = ['givecloud','givemsmart','bloomerang','kindful','raisersedge',"etapestry","classy"]
+    platforms = ['givecloud', 'givemsmart', 'bloomerang', 'kindful', 'raisersedge', "etapestry", "classy"]
     for a in soup.find_all("a", href=True):
-        if any(k in (a.get_text().lower() + a['href'].lower()) for k in ["donate","support","give"]):
+        if any(k in (a.get_text().lower() + a['href'].lower()) for k in ["donate", "support", "give"]):
             try:
                 r = requests.get(urljoin(base_url, a['href']), timeout=5)
                 txt = r.text.lower()
@@ -147,7 +141,7 @@ def crawl_site_for_contacts(url, max_pages):
         page = to_visit.pop(0)
         visited.add(page)
         try:
-            r = requests.get(page, timeout=5, headers={"User-Agent":"Mozilla/5.0"})
+            r = requests.get(page, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
             soup = BeautifulSoup(r.text, "html.parser")
             if not mission or not address:
                 m, a = extract_mission_and_address(soup)
@@ -198,15 +192,15 @@ if st.button("Start Crawling") and url_input:
         st.subheader(f"👥 {len(contacts)} Contact Cards")
         df = pd.DataFrame(contacts)
         for _, c in df.iterrows():
-            linkedin = f"[LinkedIn]({c.linkedin})" if c.linkedin else "Not found"
-            st.markdown(f"""**Name:** [{c.name}]({c.source_url})  \n**Title:** {c.title}  \n**Email:** {c.email}  \n**Phone:** {c.phone}  \n**LinkedIn:** {linkedin}""")
+            linkedin = f"[LinkedIn]({c['linkedin']})" if c['linkedin'] else "Not found"
+            st.markdown(f"""**Name:** [{c['name']}]({c['source_url']})  \n**Title:** {c['title']}  \n**Email:** {c['email']}  \n**Phone:** {c['phone']}  \n**LinkedIn:** {linkedin}""")
             st.markdown("---")
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("⬇️ Export Contact Cards (CSV)", csv, "contacts.csv", "text/csv")
     else:
         st.info("No contacts parsed.")
 
-    used_emails = {c.email.lower() for c in contacts if c.email}
+    used_emails = {c['email'].lower() for c in contacts if c['email']}
     orphaned = sorted(all_emails - used_emails)
     if orphaned:
         st.subheader("📬 Orphaned Emails (not in contact cards)")
