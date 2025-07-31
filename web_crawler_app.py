@@ -26,9 +26,9 @@ def remove_duplicate_words(text):
 
 def extract_contacts_from_html(soup):
     lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
-    email_re = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
-    phone_re = re.compile(r"\\+?\\d{1,4}?[\\s.-]?\\(?\\d{1,3}\\)?[\\s.-]?\\d{1,4}[\\s.-]?\\d{1,4}[\\s.-]?\\d{1,9}")
-    name_re = re.compile(r"\\b((?:Dr\\.|Rev\\.|Mr\\.|Ms\\.|Mrs\\.)?\\s?[A-Z][a-z]+(?:\\s[A-Z]\\.)?(?:\\s[A-Z][a-z]+)+)\\b")
+    email_re = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+    phone_re = re.compile(r"\+?\d{1,4}?[\s.-]?\(?\d{1,3}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,4}[\s.-]?\d{1,9}")
+    name_re = re.compile(r"\b((?:Dr\.|Rev\.|Mr\.|Ms\.|Mrs\.)?\s?[A-Z][a-z]+(?:\s[A-Z]\.)?(?:\s[A-Z][a-z]+)+)\b")
     title_keywords = ['Director', 'Manager', 'Coordinator', 'Officer', 'President', 'CEO','Founder', 'Chair', 'Professor', 'Dr.', 'Mr.', 'Ms.', 'Mrs.']
     contacts = []
     for i, line in enumerate(lines):
@@ -62,7 +62,7 @@ def extract_mission_and_address(soup):
     lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
     mission = next((l for l in lines if any(k in l.lower() for k in ["our mission", "we exist to", "mission is to"])), "")
     addr = ""
-    addr_re = re.compile(r"\\d{1,6} .+?, [A-Za-z\\s]+, [A-Z]{2} \\d{5}")
+    addr_re = re.compile(r"\d{1,6} .+?, [A-Za-z\s]+, [A-Z]{2} \d{5}")
     for l in lines:
         m = addr_re.search(l)
         if m:
@@ -72,7 +72,7 @@ def extract_mission_and_address(soup):
 
 def extract_ein(soup):
     text = soup.get_text(" ")
-    ein_re = re.compile(r"\\b\\d{2}-\\d{7}\\b")
+    ein_re = re.compile(r"\b\d{2}-\d{7}\b")
     match = ein_re.search(text)
     return match.group() if match else ""
 
@@ -114,8 +114,15 @@ def detect_donation_platform(base_url, soup):
         'etapestry': ['etapestry.com'],
         'classy': ['classy.org']
     }
+
+    # Helper to lowercase and strip
+    def clean_text(text):
+        return (text or "").lower()
+
+    # Check anchor tags with donate/support/give in text or href
     for a in soup.find_all("a", href=True):
-        if any(k in (a.get_text().lower() + a['href'].lower()) for k in ["donate", "support", "give"]):
+        text_href = clean_text(a.get_text() + a['href'])
+        if any(k in text_href for k in ["donate", "support", "give"]):
             try:
                 r = requests.get(urljoin(base_url, a['href']), timeout=5)
                 txt = r.text.lower()
@@ -124,23 +131,34 @@ def detect_donation_platform(base_url, soup):
                         return f"Donate via {p}"
             except:
                 pass
+
+    # Check iframe and script src URLs
     for tag in soup.find_all(["iframe", "script"], src=True):
-        src_url = tag['src'].lower()
+        src_url = clean_text(tag['src'])
+        netloc = urlparse(src_url).netloc
         for p, domains in platforms.items():
-            netloc = urlparse(src_url).netloc
             if any(domain in netloc for domain in domains):
                 return f"Donate via {p}"
+
+    # Check forms' action URLs
     for form in soup.find_all("form", action=True):
-        action_url = form['action'].lower()
+        action_url = clean_text(form['action'])
+        netloc = urlparse(action_url).netloc
         for p, domains in platforms.items():
-            netloc = urlparse(action_url).netloc
             if any(domain in netloc for domain in domains):
                 return f"Donate via {p}"
-    for button in soup.find_all(["button", "input"], text=True):
-        btn_text = button.get_text(strip=True).lower() if button.name == "button" else button.get("value", "").lower()
+
+    # Check buttons and inputs for text or value containing platform names
+    for button in soup.find_all(["button", "input"]):
+        btn_text = ""
+        if button.name == "button":
+            btn_text = clean_text(button.get_text())
+        elif button.name == "input":
+            btn_text = clean_text(button.get("value", ""))
         for p in platforms.keys():
             if p in btn_text:
                 return f"Donate via {p}"
+
     return "Not detected"
 
 def crawl_site_for_contacts(url, max_pages):
