@@ -93,6 +93,12 @@ def extract_mission_and_address(soup):
             break
     return mission, addr
 
+def extract_ein(soup):
+    text = soup.get_text(" ")
+    ein_re = re.compile(r"\b\d{2}-\d{7}\b")
+    match = ein_re.search(text)
+    return match.group() if match else ""
+
 def extract_event_summaries(soup):
     lines = [l.strip() for l in soup.get_text("\n").split("\n") if l.strip()]
     recent, upcoming = [], []
@@ -131,7 +137,7 @@ def detect_donation_platform(base_url, soup):
 def crawl_site_for_contacts(url, max_pages):
     visited, to_visit = set(), [url]
     contacts, emails = [], set()
-    mission = address = donation = ""
+    mission = address = donation = ein = ""
     recent_events = upcoming_events = []
 
     pbar = st.progress(0)
@@ -146,6 +152,9 @@ def crawl_site_for_contacts(url, max_pages):
             if not mission or not address:
                 m, a = extract_mission_and_address(soup)
                 mission, address = m or mission, a or address
+            if not ein:
+                ein_candidate = extract_ein(soup)
+                ein = ein_candidate or ein
             if not recent_events and not upcoming_events:
                 recent_events, upcoming_events = extract_event_summaries(soup)
             if not donation:
@@ -164,13 +173,13 @@ def crawl_site_for_contacts(url, max_pages):
             pass
         step += 1
         pbar.progress(min(step / max_pages, 1.0))
-    return contacts, emails, mission, address, recent_events, upcoming_events, donation
+    return contacts, emails, mission, address, ein, recent_events, upcoming_events, donation
 
 # --- Execute and Display ---
 if st.button("Start Crawling") and url_input:
     (contacts, all_emails,
      mission, address,
-     recents, upcoming,
+     ein, recents, upcoming,
      donation) = crawl_site_for_contacts(url_input.strip(), max_pages)
 
     st.success(f"✅ Crawling done — {len(contacts)} contacts found")
@@ -178,6 +187,7 @@ if st.button("Start Crawling") and url_input:
     st.subheader("📌 Organization Overview")
     st.write(f"• Mission: {mission or 'Not found'}")
     st.write(f"• Address: {address or 'Not found'}")
+    st.write(f"• EIN: {ein or 'Not found'}")
     st.write(f"• Donation Platform: {donation or 'Not detected'}")
 
     st.subheader("📅 Recent Events")
