@@ -111,6 +111,11 @@ def detect_donation_platform(base_url, soup):
         for p in platforms:
             if p.replace(" ","") in src_url or p in src_url:
                 return f"Donate via {p}"
+    for form in soup.find_all("form", action=True):
+        action_url = form['action'].lower()
+        for p in platforms:
+            if p.replace(" ","") in action_url or p in action_url:
+                return f"Donate via {p}"
     return "Not detected"
 
 def crawl_site_for_contacts(url, max_pages):
