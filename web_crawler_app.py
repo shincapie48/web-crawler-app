@@ -120,7 +120,7 @@ def get_internal_links(start_url, soup):
                if urlparse(urljoin(start_url, a['href'])).netloc == base)
 
 def detect_donation_platform(base_url, soup):
-    platforms = ['givecloud', 'givemsmart', 'bloomerang', 'kindful', 'raisersedge', "etapestry", "classy"]
+    platforms = ['givecloud', 'givemsmart', 'bloomerang', 'kindful', 'raisersedge', 'blackbaud nxt', 'blackbaud raisers edge', 'everyaction', 'give butter', 'neon', 'salsa', 'salesforce', 'virtuous', 'little green light', 'network for good', 'etapestry', 'classy']
     for a in soup.find_all("a", href=True):
         if any(k in (a.get_text().lower() + a['href'].lower()) for k in ["donate", "support", "give"]):
             try:
